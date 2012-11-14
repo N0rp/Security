@@ -1,0 +1,1 @@
+dd if=/dev/zero of=/home/uebungen/dazur/dazur009/ididitohyeah bs=15M count=1

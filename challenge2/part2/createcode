@@ -1,0 +1,3 @@
+gcc -c -o expl2code.o expl2code.s
+objcopy -O binary expl2code.o expl2code.bin
+hexdump -C expl2code.bin  | grep --color=auto -r '31\|00'

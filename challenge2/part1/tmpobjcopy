@@ -1,0 +1,1 @@
+objcopy -O binary expl1code.o expl1code.bin

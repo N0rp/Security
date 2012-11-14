@@ -1,0 +1,5 @@
+cc -c -fPIC libconvert.c -o libconvert.o
+gcc -shared -Wl,-soname,libconvert.so.1 -o libconvert.so libconvert.o
+
+rm libconvert.o
+
